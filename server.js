@@ -8,6 +8,9 @@ app.use(express.json());
 
 app.post('/v1/chat/completions', async (req, res) => {
   try {
+    // Log request size for debugging
+    console.log('Request body size:', JSON.stringify(req.body).length);
+    
     const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -16,9 +19,26 @@ app.post('/v1/chat/completions', async (req, res) => {
       },
       body: JSON.stringify(req.body)
     });
-    const data = await response.json();
-    res.json(data);
+
+    // Handle non-JSON responses from NIM
+    const text = await response.text();
+    if (text.trim().startsWith('{')) {
+      const data = JSON.parse(text);
+      
+      // Forward NIM response headers
+      Object.keys(response.headers).forEach(key => {
+        if (key.startsWith('x-') || key === 'content-type') {
+          res.set(key, response.headers.get(key));
+        }
+      });
+      
+      res.status(response.status).json(data);
+    } else {
+      console.error('Non-JSON response:', text.slice(0, 200));
+      return res.status(502).json({ error: 'NIM returned invalid response format' });
+    }
   } catch (error) {
+    console.error('Proxy error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
